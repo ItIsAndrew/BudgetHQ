@@ -2,6 +2,8 @@ import {
   ArrowLeft,
   BadgeDollarSign,
   CheckCircle2,
+  Gift,
+  HeartHandshake,
   Minus,
   PiggyBank,
   Plus,
@@ -12,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 const startingState = {
   balance: 0,
   allowance: null,
+  goalRequests: [],
   quests: [],
   chores: [],
   activity: [],
@@ -45,6 +48,17 @@ function ensureKidsItemId(item, labelKey) {
   return { ...item, id: createKidsId(label) };
 }
 
+function getNextAllowanceLabel(cadence = 'Weekly') {
+  const labelMap = {
+    Daily: 'Tomorrow',
+    Monthly: 'Next month',
+    Weekly: 'Next week',
+    'Every 2 weeks': 'In 2 weeks',
+  };
+
+  return labelMap[cadence] ?? 'Next allowance day';
+}
+
 function normalizeKidsData(data, fallback) {
   if (!data || typeof data !== 'object') {
     return fallback;
@@ -59,6 +73,9 @@ function normalizeKidsData(data, fallback) {
     chores: Array.isArray(data.chores)
       ? data.chores.map((item) => ensureKidsItemId(item, 'task'))
       : fallback.chores,
+    goalRequests: Array.isArray(data.goalRequests)
+      ? data.goalRequests.map((item) => ensureKidsItemId(item, 'goalName'))
+      : fallback.goalRequests,
     quests: Array.isArray(data.quests)
       ? data.quests.map((item) => ensureKidsItemId(item, 'name'))
       : fallback.quests,
@@ -148,13 +165,31 @@ function KidsTourVisual({ step }) {
         <strong>{step.pointer}</strong>
       </div>
       <div className="tour-preview-shell">
-        <span className="tour-preview-nav" />
-        <span className="tour-preview-hero" />
-        <span className="tour-preview-balance" />
-        <span className="tour-preview-meter" />
-        <span className="tour-preview-card card-one" />
-        <span className="tour-preview-card card-two" />
-        <span className="tour-preview-card card-three" />
+        <span className="tour-preview-nav">Kids Dashboard</span>
+        <span className="tour-preview-hero">
+          <strong>Money Box</strong>
+          <small>Add money first</small>
+        </span>
+        <span className="tour-preview-balance">
+          <strong>$0</strong>
+          <small>Ready to track</small>
+        </span>
+        <span className="tour-preview-meter">
+          <strong>Savings Quests</strong>
+          <small>Progress appears after goals</small>
+        </span>
+        <span className="tour-preview-card card-one">
+          <strong>Quests</strong>
+          <small>Save or take $5</small>
+        </span>
+        <span className="tour-preview-card card-two">
+          <strong>Chores</strong>
+          <small>Earn rewards</small>
+        </span>
+        <span className="tour-preview-card card-three">
+          <strong>Chore Store</strong>
+          <small>Save, spend, donate</small>
+        </span>
       </div>
     </div>
   );
@@ -206,11 +241,12 @@ function KidsTourOverlay({ onClose, steps }) {
 }
 
 function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }) {
-  const [kidsData, setKidsData] = useStoredKidsState('budgethq-kids-data', startingState);
+  const [kidsData, setKidsData] = useStoredKidsState('budgethq-kids-data-v2', startingState);
   const [moneyAmount, setMoneyAmount] = useState('');
   const [questName, setQuestName] = useState('');
   const [questTarget, setQuestTarget] = useState('');
   const [questIcon, setQuestIcon] = useState('');
+  const [goalRequestDrafts, setGoalRequestDrafts] = useState({});
   const [choreName, setChoreName] = useState('');
   const [choreReward, setChoreReward] = useState('');
   const [allowanceAmount, setAllowanceAmount] = useState('');
@@ -245,6 +281,10 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
 
   const totalSaved = useMemo(
     () => kidsData.quests.reduce((sum, quest) => sum + quest.saved, 0),
+    [kidsData.quests],
+  );
+  const firstOpenQuest = useMemo(
+    () => kidsData.quests.find((quest) => quest.saved < quest.target) ?? null,
     [kidsData.quests],
   );
 
@@ -352,9 +392,10 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
       ...current,
       allowance: {
         amount,
+        autopilotEnabled: true,
         cadence: allowanceCadence,
         claimed: false,
-        next: 'Next allowance day',
+        next: getNextAllowanceLabel(allowanceCadence),
       },
     }));
     setAllowanceAmount('');
@@ -442,6 +483,114 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
             amount,
             label: direction === 'in' ? `Moved to ${quest.name}` : `Moved back from ${quest.name}`,
             type: direction === 'in' ? 'out' : 'in',
+          }),
+          ...current.activity,
+        ],
+      };
+    });
+  };
+
+  const requestGoalMoney = (questId) => {
+    const quest = kidsData.quests.find((item) => item.id === questId);
+    const amount = Number(goalRequestDrafts[questId]);
+
+    if (!quest) {
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormMessage(`request-${questId}`, 'Enter a positive amount to ask for.');
+      return;
+    }
+
+    const remaining = Math.max(quest.target - quest.saved, 0);
+    const requestAmount = Math.min(amount, remaining);
+
+    if (requestAmount <= 0) {
+      setFormMessage(`request-${questId}`, 'This goal is already funded.');
+      return;
+    }
+
+    clearFormMessage(`request-${questId}`);
+    setKidsData((current) => ({
+      ...current,
+      goalRequests: [
+        {
+          amount: requestAmount,
+          childName: 'BudgetHQ Kid',
+          goalIcon: quest.icon,
+          goalId: quest.id,
+          goalName: quest.name,
+          id: createKidsId(`${quest.name} request`),
+          note: `Requesting help toward ${quest.name}.`,
+          requestedAt: 'Just now',
+          status: 'Pending',
+        },
+        ...(current.goalRequests ?? []),
+      ].slice(0, 8),
+      activity: [
+        addActivity({
+          amount: requestAmount,
+          label: `${quest.name} request sent`,
+          type: 'out',
+        }),
+        ...current.activity,
+      ],
+    }));
+    setGoalRequestDrafts((current) => ({ ...current, [questId]: '' }));
+  };
+
+  const chooseStoreMove = (choice) => {
+    setKidsData((current) => {
+      const amount = Math.min(5, current.balance);
+
+      if (amount <= 0) {
+        return current;
+      }
+
+      if (choice === 'save') {
+        const quest = current.quests.find((item) => item.saved < item.target);
+
+        if (!quest) {
+          return current;
+        }
+
+        const saveAmount = Math.min(amount, quest.target - quest.saved);
+
+        if (saveAmount <= 0) {
+          return current;
+        }
+
+        return {
+          ...current,
+          balance: current.balance - saveAmount,
+          quests: current.quests.map((item) =>
+            item.id === quest.id ? { ...item, saved: item.saved + saveAmount } : item,
+          ),
+          activity: [
+            addActivity({
+              amount: saveAmount,
+              label: `Chore Store saved for ${quest.name}`,
+              type: 'out',
+            }),
+            ...current.activity,
+          ],
+        };
+      }
+
+      const labels = {
+        donate: 'Chore Store donation',
+        spend: 'Chore Store spending choice',
+      };
+
+      return {
+        ...current,
+        balance: current.balance - amount,
+        activity: [
+          addActivity({
+            amount,
+            label: labels[choice],
+            type: 'out',
           }),
           ...current.activity,
         ],
@@ -618,6 +767,9 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
             {kidsData.quests.length > 0 ? (
               kidsData.quests.map((quest) => {
                 const progress = quest.target > 0 ? (quest.saved / quest.target) * 100 : 0;
+                const pendingRequest = (kidsData.goalRequests ?? []).find(
+                  (request) => request.goalId === quest.id && request.status === 'Pending',
+                );
 
                 return (
                   <article className="quest-card" key={quest.id}>
@@ -649,6 +801,30 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
                         <Minus size={16} />
                         Take $5
                       </button>
+                    </div>
+                    <div className="quest-request">
+                      <label htmlFor={`quest-request-${quest.id}`}>Ask Main</label>
+                      <div>
+                        <input
+                          id={`quest-request-${quest.id}`}
+                          min="1"
+                          onChange={(event) =>
+                            setGoalRequestDrafts((current) => ({
+                              ...current,
+                              [quest.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="0"
+                          type="number"
+                          value={goalRequestDrafts[quest.id] ?? ''}
+                        />
+                        <button disabled={Boolean(pendingRequest)} onClick={() => requestGoalMoney(quest.id)} type="button">
+                          {pendingRequest ? 'Sent' : 'Request'}
+                        </button>
+                      </div>
+                      <FormMessage id={`quest-request-message-${quest.id}`} tone={formMessages[`request-${quest.id}`] ? 'error' : 'hint'}>
+                        {formMessages[`request-${quest.id}`] || (pendingRequest ? 'Waiting for Main to decide.' : '')}
+                      </FormMessage>
                     </div>
                   </article>
                 );
@@ -719,6 +895,52 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
               ) : (
                 <KidsEmptyState title="No chores yet">Add a chore to let rewards show up here.</KidsEmptyState>
               )}
+            </div>
+          </section>
+
+          <section className="kids-panel chore-store">
+            <div className="panel-heading compact">
+              <div>
+                <p className="eyebrow">Chore Store</p>
+                <h2>Choose what money does</h2>
+              </div>
+              <Gift size={28} />
+            </div>
+            <p>Chore money becomes a small choice: save it, spend it, or donate it.</p>
+            <div className="store-choice-list">
+              <button
+                disabled={!firstOpenQuest || kidsData.balance <= 0}
+                onClick={() => chooseStoreMove('save')}
+                type="button"
+              >
+                <PiggyBank size={17} />
+                <span>
+                  Save $5
+                  <small>{firstOpenQuest ? `to ${firstOpenQuest.name}` : 'add a quest first'}</small>
+                </span>
+              </button>
+              <button
+                disabled={kidsData.balance <= 0}
+                onClick={() => chooseStoreMove('spend')}
+                type="button"
+              >
+                <BadgeDollarSign size={17} />
+                <span>
+                  Spend $5
+                  <small>practice a fun choice</small>
+                </span>
+              </button>
+              <button
+                disabled={kidsData.balance <= 0}
+                onClick={() => chooseStoreMove('donate')}
+                type="button"
+              >
+                <HeartHandshake size={17} />
+                <span>
+                  Donate $5
+                  <small>share part of a reward</small>
+                </span>
+              </button>
             </div>
           </section>
 

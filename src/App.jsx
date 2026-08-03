@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Baby,
+  BadgeDollarSign,
   CalendarClock,
   Check,
   Coins,
@@ -16,6 +17,7 @@ import {
   Shuffle,
   Sparkles,
   TrendingUp,
+  Upload,
   Users,
   Wallet,
   X,
@@ -64,10 +66,29 @@ const categoryColors = {
   Shopping: '#f59e0b',
   Transport: '#8b5cf6',
 };
+const kidsDataStorageKey = 'budgethq-kids-data-v2';
+const essentialSpendingCategories = ['Bills', 'Food', 'Transport'];
 const permissionProfiles = [
-  { id: 'admin', label: 'Admin', detail: 'Can approve proposals, apply autopilot, and manage money.' },
-  { id: 'collaborator', label: 'Collaborator', detail: 'Can vote, comment, and suggest changes.' },
-  { id: 'viewer', label: 'Viewer', detail: 'Can view the shared plan without changing money.' },
+  {
+    detail: 'Full household view with accounts, bills, subscriptions, roles, and money movement.',
+    id: 'parent',
+    label: 'Parent',
+  },
+  {
+    detail: 'Shared planning view for goals, categories, proposals, and recurring costs without payment controls.',
+    id: 'teen',
+    label: 'Teen',
+  },
+  {
+    detail: 'Kid-safe view focused on goals, saving choices, and simple activity.',
+    id: 'kid',
+    label: 'Kid',
+  },
+  {
+    detail: 'Read-only household view for reviewing the shared plan without changing money.',
+    id: 'viewer',
+    label: 'Viewer',
+  },
 ];
 
 const startingHouseholdData = {
@@ -82,7 +103,13 @@ const startingHouseholdData = {
   forecast: [],
   pressureWeeks: [],
   proposals: [],
+  kidGoalRequests: [],
   purchasePause: null,
+  spendingPause: {
+    active: false,
+    allowedCategories: ['Bills', 'Food', 'Transport'],
+    reason: 'Pause non-essential spending and keep only bills, groceries, and needed expenses visible.',
+  },
   tradeoffs: [],
   roles: [],
   notifications: [],
@@ -187,11 +214,29 @@ const sampleHouseholdData = {
       title: 'Vacation boost',
     },
   ],
+  kidGoalRequests: [
+    {
+      amount: 25,
+      childName: 'BudgetHQ Kid',
+      goalIcon: '★',
+      goalId: 'sample-kid-bike',
+      goalName: 'New Bike',
+      id: 'sample-kid-bike-request',
+      note: 'I finished my chore streak and want to get closer.',
+      requestedAt: 'Just now',
+      status: 'Pending',
+    },
+  ],
   purchasePause: {
     amount: 420,
     holdHours: 48,
     item: 'New tablet',
     reason: 'Wait until rent clears before deciding.',
+  },
+  spendingPause: {
+    active: false,
+    allowedCategories: ['Bills', 'Food', 'Transport'],
+    reason: 'Pause non-essential spending and keep only bills, groceries, and needed expenses visible.',
   },
   tradeoffs: [
     { amount: 50, id: 'sample-emergency', label: 'Emergency', outcome: '$50 increases emergency coverage.' },
@@ -199,9 +244,9 @@ const sampleHouseholdData = {
     { amount: 50, id: 'sample-card', label: 'Card', outcome: '$50 lowers credit card balance.' },
   ],
   roles: [
-    { access: 'Can see all household cards and approve proposals.', id: 'sample-adult', label: 'Adult' },
-    { access: 'Can see goals, chores, and kid-safe activity only.', id: 'sample-kid', label: 'Kid' },
-    { access: 'Can review bills and shared decisions.', id: 'sample-partner', label: 'Partner' },
+    { access: 'Can see all household cards and approve proposals.', id: 'sample-adult', label: 'Parent', permission: 'parent' },
+    { access: 'Can see goals, chores, and kid-safe activity only.', id: 'sample-kid', label: 'Kid', permission: 'kid' },
+    { access: 'Can review goals, subscriptions, and shared decisions.', id: 'sample-teen', label: 'Teen', permission: 'teen' },
   ],
   emotionalInsight: {
     nudge: 'Plan a snack run before errands to keep impulse spending low.',
@@ -210,7 +255,7 @@ const sampleHouseholdData = {
   },
   subscriptions: [
     { amount: 15.99, id: 'sample-streaming', name: 'StreamBox', status: 'Keep', useScore: 84 },
-    { amount: 9.99, id: 'sample-app', name: 'Photo Cloud', status: 'Review', useScore: 48 },
+    { amount: 12.99, id: 'sample-app', name: 'Photo Cloud', previousAmount: 9.99, status: 'Price increased', useScore: 48 },
   ],
   autopilot: [
     { action: 'Move to emergency fund', amount: 100, id: 'sample-auto-emergency', timing: 'After rent clears' },
@@ -247,7 +292,7 @@ const tourContent = {
   kids: [
     {
       title: 'Meet The Money Box',
-      body: 'Kids start with a simple ready-to-use balance so the app feels clear before introducing goals or chores.',
+      body: 'Kids start with an empty money box, then add money, quests, and chores as real things happen.',
       pointer: 'The big balance is the first stop',
       visual: 'money-box',
     },
@@ -259,8 +304,8 @@ const tourContent = {
     },
     {
       title: 'Earn And Learn',
-      body: 'Allowance, chores, and activity make money movement visible so saving feels concrete instead of mysterious.',
-      pointer: 'Rewards and history sit together',
+      body: 'Chores add rewards, then the Chore Store lets kids choose whether to save, spend, or donate.',
+      pointer: 'Chore choices sit beside activity',
       visual: 'chores',
     },
   ],
@@ -317,6 +362,9 @@ function normalizeHouseholdData(data, fallback) {
       ? data.pressureWeeks.map((item) => ensureItemId(item, 'label'))
       : fallback.pressureWeeks,
     proposals: Array.isArray(data.proposals) ? data.proposals.map((item) => ensureItemId(item, 'title')) : fallback.proposals,
+    kidGoalRequests: Array.isArray(data.kidGoalRequests)
+      ? data.kidGoalRequests.map((item) => ensureItemId(item, 'goalName'))
+      : fallback.kidGoalRequests,
     roles: Array.isArray(data.roles) ? data.roles.map((item) => ensureItemId(item, 'label')) : fallback.roles,
     notifications: Array.isArray(data.notifications)
       ? data.notifications.map((item) => ensureItemId(item, 'message'))
@@ -424,6 +472,65 @@ function createActivityCsv(activity) {
   return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n');
 }
 
+function getDateKey(dateValue) {
+  const date = dateValue ? new Date(`${dateValue}T00:00:00`) : new Date();
+
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getBudgetStreak(activity, dailyLimit) {
+  const spendByDay = activity.reduce((days, entry) => {
+    if (entry.amount >= 0) {
+      return days;
+    }
+
+    const key = getDateKey(entry.transactionDate || entry.date);
+    return {
+      ...days,
+      [key]: (days[key] ?? 0) + Math.abs(entry.amount),
+    };
+  }, {});
+  const days = Object.entries(spendByDay)
+    .map(([date, spent]) => ({ date, spent, under: dailyLimit > 0 && spent <= dailyLimit }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  let current = 0;
+  let best = 0;
+  let running = 0;
+
+  days.forEach((day, index) => {
+    if (day.under) {
+      running += 1;
+      best = Math.max(best, running);
+      if (index === current) {
+        current += 1;
+      }
+      return;
+    }
+
+    running = 0;
+  });
+
+  const recentSeven = days.slice(0, 7);
+  const recentUnder = recentSeven.filter((day) => day.under).length;
+
+  return {
+    best,
+    current,
+    days,
+    recentUnder,
+    overDays: days.filter((day) => !day.under).length,
+    underDays: days.filter((day) => day.under).length,
+  };
+}
+
+function formatReceiptName(name) {
+  return name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Receipt';
+}
+
 function createActivityEntry(entry) {
   const amount = Number(entry.amount) || 0;
 
@@ -491,6 +598,43 @@ function addNotificationToData(current, message, actor = 'BudgetHQ') {
       ...(current.notifications ?? []),
     ].slice(0, 6),
   };
+}
+
+function readKidsBridgeData() {
+  if (typeof window === 'undefined') {
+    return { activity: [], balance: 0, goalRequests: [], quests: [] };
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(kidsDataStorageKey);
+    const parsedValue = storedValue ? JSON.parse(storedValue) : {};
+
+    return {
+      ...parsedValue,
+      activity: Array.isArray(parsedValue.activity) ? parsedValue.activity : [],
+      goalRequests: Array.isArray(parsedValue.goalRequests) ? parsedValue.goalRequests : [],
+      quests: Array.isArray(parsedValue.quests) ? parsedValue.quests : [],
+    };
+  } catch {
+    return { activity: [], balance: 0, goalRequests: [], quests: [] };
+  }
+}
+
+function writeKidsBridgeData(data) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(kidsDataStorageKey, JSON.stringify(data));
+  }
+}
+
+function getNextAllowanceLabel(cadence = 'Weekly') {
+  const labelMap = {
+    Daily: 'Tomorrow',
+    Monthly: 'Next month',
+    Weekly: 'Next week',
+    'Every 2 weeks': 'In 2 weeks',
+  };
+
+  return labelMap[cadence] ?? 'Next allowance day';
 }
 
 function getCashflowInsights({ activity, bills, dailyLimit, goals, remainingDays, subscriptions, totalBalance }) {
@@ -667,6 +811,122 @@ function getBudgetMood({ dailyLimit, spentToday, totalBalance, urgentBills }) {
   };
 }
 
+function getMoneyHealthScore({
+  dailyLimit,
+  goals,
+  spentToday,
+  totalBalance,
+  urgentBills,
+}) {
+  if (dailyLimit <= 0 && totalBalance <= 0 && goals.length === 0 && urgentBills === 0) {
+    return {
+      label: 'Set Up Needed',
+      score: 0,
+      detail: 'Add accounts, bills, goals, and a monthly budget to calculate money health.',
+    };
+  }
+
+  const pacePoints =
+    dailyLimit <= 0 ? 12 : Math.max(0, Math.round(30 - (spentToday / dailyLimit) * 22));
+  const bufferPoints =
+    totalBalance <= 0 ? 0 : Math.min(30, Math.round((totalBalance / Math.max(dailyLimit * 14, 1)) * 30));
+  const billPoints = Math.max(0, 20 - urgentBills * 8);
+  const goalProgress =
+    goals.length === 0
+      ? 0
+      : goals.reduce((sum, goal) => sum + goal.saved / Math.max(goal.target, 1), 0) / goals.length;
+  const goalPoints = goals.length === 0 ? 8 : Math.round(Math.min(goalProgress, 1) * 20);
+  const score = Math.min(100, Math.max(0, pacePoints + bufferPoints + billPoints + goalPoints));
+
+  if (score >= 82) {
+    return {
+      label: 'Strong',
+      score,
+      detail: 'Your cash buffer, bills, goals, and spending pace are working together.',
+    };
+  }
+
+  if (score >= 60) {
+    return {
+      label: 'Steady',
+      score,
+      detail: 'You have a workable plan. Keep an eye on daily spending and upcoming bills.',
+    };
+  }
+
+  if (score >= 35) {
+    return {
+      label: 'Needs Attention',
+      score,
+      detail: 'A few setup steps or smaller purchases would make the plan easier to trust.',
+    };
+  }
+
+  return {
+    label: 'Getting Started',
+    score,
+    detail: 'Add money, bills, and goals so BudgetHQ can build a clearer picture.',
+  };
+}
+
+function getRoleProfile(permission) {
+  const normalizedPermission =
+    permission === 'admin' ? 'parent' : permission === 'collaborator' ? 'teen' : permission;
+
+  return permissionProfiles.find((profile) => profile.id === normalizedPermission) ?? permissionProfiles[0];
+}
+
+function getBillShockAlert({ bills, dailyLimit, monthBudgetRemaining, remainingDays }) {
+  const shockBill = [...bills]
+    .filter((bill) => bill.hoursAway <= 120 && bill.amount >= Math.max(dailyLimit * 3, 250))
+    .sort((a, b) => a.hoursAway - b.hoursAway || b.amount - a.amount)[0];
+
+  if (!shockBill) {
+    return null;
+  }
+
+  const adjustedDailySpend =
+    remainingDays > 0 ? Math.max((monthBudgetRemaining - shockBill.amount) / remainingDays, 0) : 0;
+
+  return {
+    adjustedDailySpend,
+    bill: shockBill,
+    reduction: Math.max(dailyLimit - adjustedDailySpend, 0),
+  };
+}
+
+function getSubscriptionSignal(subscription) {
+  if (subscription.previousAmount && subscription.amount > subscription.previousAmount) {
+    return {
+      label: 'Price increased',
+      tone: 'danger',
+      note: `Up from ${formatMoney(subscription.previousAmount, 'USD')}.`,
+    };
+  }
+
+  if ((subscription.useScore ?? 0) >= 70 || subscription.status === 'Keep') {
+    return {
+      label: 'Used often',
+      tone: 'success',
+      note: 'Worth keeping based on the current use score.',
+    };
+  }
+
+  if ((subscription.useScore ?? 0) <= 55 || subscription.status === 'Review') {
+    return {
+      label: 'Maybe cancel',
+      tone: 'warning',
+      note: 'Low value signal. Review before the next renewal.',
+    };
+  }
+
+  return {
+    label: 'Watch',
+    tone: 'neutral',
+    note: 'No strong signal yet.',
+  };
+}
+
 function EmptyState({ children, title }) {
   return (
     <div className="empty-state">
@@ -698,13 +958,31 @@ function TourVisual({ step, workspaceName }) {
         <strong>{step.pointer}</strong>
       </div>
       <div className="tour-preview-shell">
-        <span className="tour-preview-nav" />
-        <span className="tour-preview-hero" />
-        <span className="tour-preview-balance" />
-        <span className="tour-preview-meter" />
-        <span className="tour-preview-card card-one" />
-        <span className="tour-preview-card card-two" />
-        <span className="tour-preview-card card-three" />
+        <span className="tour-preview-nav">Main Dashboard</span>
+        <span className="tour-preview-hero">
+          <strong>Dashboard</strong>
+          <small>Charts and household pulse</small>
+        </span>
+        <span className="tour-preview-balance">
+          <strong>Available Cash</strong>
+          <small>Accounts and money mood</small>
+        </span>
+        <span className="tour-preview-meter">
+          <strong>Safe-to-Spend</strong>
+          <small>Daily pace</small>
+        </span>
+        <span className="tour-preview-card card-one">
+          <strong>Bills</strong>
+          <small>Due dates</small>
+        </span>
+        <span className="tour-preview-card card-two">
+          <strong>Goals</strong>
+          <small>Progress bars</small>
+        </span>
+        <span className="tour-preview-card card-three">
+          <strong>Trade-Offs</strong>
+          <small>Goal choices</small>
+        </span>
       </div>
     </div>
   );
@@ -773,6 +1051,7 @@ function MainWorkspace({
     'budgethq-household-data-v2',
     startingHouseholdData,
   );
+  const [kidsBridgeData, setKidsBridgeData] = useState(() => readKidsBridgeData());
   const [approvedProposal, setApprovedProposal] = useState(null);
   const [activeMainPage, setActiveMainPage] = useState('dashboard');
   const [pausedPurchase, setPausedPurchase] = useState(true);
@@ -796,8 +1075,12 @@ function MainWorkspace({
   const [transactionFilter, setTransactionFilter] = useState('all');
   const [editingTransactionId, setEditingTransactionId] = useState(null);
   const [csvImportText, setCsvImportText] = useState('');
+  const [receiptItems, setReceiptItems] = useState([]);
   const [backupText, setBackupText] = useState('');
   const [privacyMode, setPrivacyMode] = useStoredState('budgethq-privacy-mode', false);
+  const [whatIfRentChange, setWhatIfRentChange] = useState('');
+  const [whatIfWeeklySavings, setWhatIfWeeklySavings] = useState('');
+  const [whatIfIncomeChange, setWhatIfIncomeChange] = useState('');
   const [budgetAmount, setBudgetAmount] = useState('');
   const [budgetDays, setBudgetDays] = useState('');
   const [categoryName, setCategoryName] = useState('');
@@ -812,7 +1095,7 @@ function MainWorkspace({
   const [subscriptionAmount, setSubscriptionAmount] = useState('');
   const [roleName, setRoleName] = useState('');
   const [roleAccess, setRoleAccess] = useState('');
-  const [rolePermission, setRolePermission] = useState('collaborator');
+  const [rolePermission, setRolePermission] = useState('teen');
   const [proposalTitle, setProposalTitle] = useState('');
   const [proposalChange, setProposalChange] = useState('');
   const [proposalCommentDrafts, setProposalCommentDrafts] = useState({});
@@ -821,6 +1104,18 @@ function MainWorkspace({
   const [autopilotAction, setAutopilotAction] = useState('');
   const [autopilotAmount, setAutopilotAmount] = useState('');
   const [formMessages, setFormMessages] = useState({});
+
+  useEffect(() => {
+    const refreshKidsData = () => setKidsBridgeData(readKidsBridgeData());
+
+    window.addEventListener('focus', refreshKidsData);
+    window.addEventListener('storage', refreshKidsData);
+
+    return () => {
+      window.removeEventListener('focus', refreshKidsData);
+      window.removeEventListener('storage', refreshKidsData);
+    };
+  }, []);
 
   const hasPositiveAmount = (value) => {
     const amount = Number(value);
@@ -847,10 +1142,22 @@ function MainWorkspace({
   const canAddProposal = proposalTitle.trim() && proposalChange.trim();
   const canAddPause = pauseItem.trim() && hasPositiveAmount(pauseAmount);
   const canAddAutopilot = autopilotAction.trim() && hasPositiveAmount(autopilotAmount);
+  const spendingPause = householdData.spendingPause ?? startingHouseholdData.spendingPause;
+  const isSpendingPaused = Boolean(spendingPause?.active);
+  const allowedPauseCategories = spendingPause?.allowedCategories ?? essentialSpendingCategories;
+  const isSpendCategoryPaused =
+    isSpendingPaused && !allowedPauseCategories.includes(spendCategory);
+  const isTransactionCategoryPaused =
+    isSpendingPaused && transactionType === 'expense' && !allowedPauseCategories.includes(transactionCategory);
   const activeMember = householdData.roles.find((role) => role.id === activeRole) ?? null;
-  const activePermission = activeMember?.permission ?? 'admin';
-  const canManageMoney = activePermission === 'admin';
-  const canCollaborate = activePermission === 'admin' || activePermission === 'collaborator';
+  const activeProfile = getRoleProfile(activeMember?.permission ?? 'parent');
+  const activePermission = activeProfile.id;
+  const canManageMoney = activePermission === 'parent';
+  const canCollaborate = activePermission === 'parent' || activePermission === 'teen';
+  const canViewBills = activePermission !== 'kid';
+  const canViewSubscriptions = activePermission === 'parent' || activePermission === 'teen';
+  const canViewReports = activePermission === 'parent' || activePermission === 'viewer';
+  const canViewTransactions = activePermission !== 'kid';
   const activeMemberName = activeMember?.label ?? 'You';
   const hasHouseholdData =
     householdData.accounts.length > 0 ||
@@ -900,6 +1207,10 @@ function MainWorkspace({
     setTransactionFilter('all');
     setEditingTransactionId(null);
     setCsvImportText('');
+    setReceiptItems([]);
+    setWhatIfRentChange('');
+    setWhatIfWeeklySavings('');
+    setWhatIfIncomeChange('');
     setBudgetAmount('');
     setBudgetDays('');
     setCategoryName('');
@@ -914,7 +1225,7 @@ function MainWorkspace({
     setSubscriptionAmount('');
     setRoleName('');
     setRoleAccess('');
-    setRolePermission('collaborator');
+    setRolePermission('teen');
     setProposalTitle('');
     setProposalChange('');
     setProposalCommentDrafts({});
@@ -1042,6 +1353,11 @@ function MainWorkspace({
 
     if (transactionType === 'expense' && balanceAfterReversal < rawAmount) {
       setFormMessage('transaction', 'This account does not have enough money for that expense.');
+      return;
+    }
+
+    if (isTransactionCategoryPaused) {
+      setFormMessage('transaction', 'Spending pause is on. Use bills, food, or transport for expense entries.');
       return;
     }
 
@@ -1187,6 +1503,49 @@ function MainWorkspace({
     setCsvImportText('');
   };
 
+  const handleReceiptFiles = (files) => {
+    const acceptedFiles = Array.from(files ?? []).filter((file) =>
+      file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.csv'),
+    );
+
+    if (acceptedFiles.length === 0) {
+      setFormMessage('receipt', 'Drop a receipt image or CSV file.');
+      return;
+    }
+
+    clearFormMessage('receipt');
+    acceptedFiles.forEach((file) => {
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result ?? '').trim();
+          setCsvImportText((current) => [current, text].filter(Boolean).join('\n'));
+          setReceiptItems((current) => [
+            {
+              id: createId(file.name),
+              name: file.name,
+              status: 'CSV rows staged for import',
+              type: 'CSV',
+            },
+            ...current,
+          ].slice(0, 5));
+        };
+        reader.readAsText(file);
+        return;
+      }
+
+      setReceiptItems((current) => [
+        {
+          id: createId(file.name),
+          name: formatReceiptName(file.name),
+          status: 'Image staged for receipt extraction',
+          type: 'Image',
+        },
+        ...current,
+      ].slice(0, 5));
+    });
+  };
+
   const addMoney = () => {
     const amount = Number(depositAmount);
 
@@ -1223,6 +1582,11 @@ function MainWorkspace({
     const amount = Number(spendAmount);
     if (!hasPositiveAmount(spendAmount)) {
       setFormMessage('logSpending', 'Enter a positive purchase amount.');
+      return;
+    }
+
+    if (isSpendCategoryPaused) {
+      setFormMessage('logSpending', 'Spending pause is on. Choose bills, food, or transport only.');
       return;
     }
 
@@ -1523,8 +1887,9 @@ function MainWorkspace({
           amount,
           id: createId(subscriptionName),
           name: subscriptionName.trim(),
-          status: 'Review',
-          useScore: 50,
+          previousAmount: amount >= 20 ? Math.max(amount - 3, 1) : null,
+          status: amount >= 20 ? 'Price increased' : 'Review',
+          useScore: amount < 12 ? 76 : 48,
         },
         ...current.subscriptions,
       ],
@@ -1557,7 +1922,7 @@ function MainWorkspace({
         {
           actor: 'BudgetHQ',
           id: createId(`${roleName.trim()} invited`),
-          message: `${roleName.trim()} joined as ${permissionProfiles.find((profile) => profile.id === rolePermission)?.label ?? 'Collaborator'}.`,
+          message: `${roleName.trim()} joined as ${permissionProfiles.find((profile) => profile.id === rolePermission)?.label ?? 'Teen'}.`,
           time: 'Just now',
         },
         ...(current.notifications ?? []),
@@ -1566,7 +1931,7 @@ function MainWorkspace({
     setActiveRole(id);
     setRoleName('');
     setRoleAccess('');
-    setRolePermission('collaborator');
+    setRolePermission('teen');
   };
 
   const addProposal = () => {
@@ -1649,6 +2014,189 @@ function MainWorkspace({
     setApprovedProposal(decision === 'approved' ? proposalId : null);
   };
 
+  const syncKidGoalRequest = (requestId, status) => {
+    const nextKidsData = {
+      ...kidsBridgeData,
+      goalRequests: (kidsBridgeData.goalRequests ?? []).map((request) =>
+        request.id === requestId
+          ? {
+              ...request,
+              decidedAt: 'Just now',
+              decidedBy: activeMemberName,
+              status,
+            }
+          : request,
+      ),
+    };
+
+    setKidsBridgeData(nextKidsData);
+    writeKidsBridgeData(nextKidsData);
+  };
+
+  const decideKidGoalRequest = (requestId, decision) => {
+    if (!canManageMoney) {
+      setFormMessage('kidGoalRequest', 'Only Parent members can approve or decline kid goal requests.');
+      return;
+    }
+
+    const request =
+      (householdData.kidGoalRequests ?? []).find((item) => item.id === requestId) ??
+      (kidsBridgeData.goalRequests ?? []).find((item) => item.id === requestId);
+
+    if (!request || request.status !== 'Pending') {
+      return;
+    }
+
+    if (decision === 'approved' && checkingBalance < request.amount) {
+      setFormMessage('kidGoalRequest', 'Add money to the household account before approving this request.');
+      return;
+    }
+
+    clearFormMessage('kidGoalRequest');
+
+    if (decision === 'declined') {
+      setHouseholdData((current) =>
+        addNotificationToData(
+          {
+            ...current,
+            kidGoalRequests: (current.kidGoalRequests ?? []).map((item) =>
+              item.id === requestId
+                ? { ...item, decidedAt: 'Just now', decidedBy: activeMemberName, status: 'Declined' }
+                : item,
+            ),
+          },
+          `${activeMemberName} declined ${request.goalName}.`,
+          activeMemberName,
+        ),
+      );
+      syncKidGoalRequest(requestId, 'Declined');
+      return;
+    }
+
+    const nextKidsData = {
+      ...kidsBridgeData,
+      activity: [
+        {
+          amount: request.amount,
+          id: createId(`${request.goalName} approved`),
+          label: `${request.goalName} approved by Main`,
+          type: 'in',
+        },
+        ...(kidsBridgeData.activity ?? []),
+      ].slice(0, 12),
+      goalRequests: (kidsBridgeData.goalRequests ?? []).map((item) =>
+        item.id === requestId
+          ? { ...item, decidedAt: 'Just now', decidedBy: activeMemberName, status: 'Approved' }
+          : item,
+      ),
+      quests: (kidsBridgeData.quests ?? []).map((quest) =>
+        quest.id === request.goalId
+          ? { ...quest, saved: Math.min((quest.saved ?? 0) + request.amount, quest.target ?? request.amount) }
+          : quest,
+      ),
+    };
+
+    setKidsBridgeData(nextKidsData);
+    writeKidsBridgeData(nextKidsData);
+    setHouseholdData((current) => {
+      const nextData = {
+        ...current,
+        accounts: current.accounts.map((account, index) =>
+          index === 0 ? { ...account, balance: account.balance - request.amount } : account,
+        ),
+        kidGoalRequests: (current.kidGoalRequests ?? []).map((item) =>
+          item.id === requestId
+            ? { ...item, decidedAt: 'Just now', decidedBy: activeMemberName, status: 'Approved' }
+            : item,
+        ),
+      };
+
+      return addNotificationToData(
+        addActivityToData(
+          nextData,
+          {
+            amount: -request.amount,
+            category: 'Kids',
+            merchant: `${request.goalName} kid goal approved`,
+            transactionDate: new Date().toISOString().slice(0, 10),
+            type: 'expense',
+          },
+          currency,
+        ),
+        `${activeMemberName} approved ${formatMoney(request.amount, currency)} for ${request.goalName}.`,
+        activeMemberName,
+      );
+    });
+  };
+
+  const runKidAllowanceAutopilot = () => {
+    const allowance = kidsBridgeData.allowance;
+
+    if (!canManageMoney) {
+      setFormMessage('allowanceAutopilot', 'Only Parent members can run allowance autopilot.');
+      return;
+    }
+
+    if (!allowance?.amount) {
+      setFormMessage('allowanceAutopilot', 'Set an allowance in the Kids portal first.');
+      return;
+    }
+
+    clearFormMessage('allowanceAutopilot');
+    const nextKidsData = {
+      ...kidsBridgeData,
+      allowance: {
+        ...allowance,
+        autopilotEnabled: allowance.autopilotEnabled !== false,
+        claimed: false,
+        lastPaid: 'Just now',
+        next: getNextAllowanceLabel(allowance.cadence),
+      },
+      balance: (kidsBridgeData.balance ?? 0) + allowance.amount,
+      activity: [
+        {
+          amount: allowance.amount,
+          id: createId('allowance autopilot'),
+          label: 'Allowance Autopilot paid',
+          type: 'in',
+        },
+        ...(kidsBridgeData.activity ?? []),
+      ].slice(0, 12),
+    };
+
+    setKidsBridgeData(nextKidsData);
+    writeKidsBridgeData(nextKidsData);
+    setHouseholdData((current) =>
+      addNotificationToData(
+        current,
+        `Allowance autopilot added ${formatMoney(allowance.amount, currency)} to Kids.`,
+        activeMemberName,
+      ),
+    );
+  };
+
+  const toggleKidAllowanceAutopilot = () => {
+    const allowance = kidsBridgeData.allowance;
+
+    if (!allowance) {
+      setFormMessage('allowanceAutopilot', 'Set an allowance in the Kids portal first.');
+      return;
+    }
+
+    clearFormMessage('allowanceAutopilot');
+    const enabled = allowance.autopilotEnabled === false;
+    const nextKidsData = {
+      ...kidsBridgeData,
+      allowance: {
+        ...allowance,
+        autopilotEnabled: enabled,
+      },
+    };
+
+    setKidsBridgeData(nextKidsData);
+    writeKidsBridgeData(nextKidsData);
+  };
+
   const addProposalComment = (proposalId) => {
     const comment = proposalCommentDrafts[proposalId]?.trim();
 
@@ -1717,6 +2265,28 @@ function MainWorkspace({
     setPauseAmount('');
   };
 
+  const toggleSpendingPause = () => {
+    setHouseholdData((current) => {
+      const currentPause = current.spendingPause ?? startingHouseholdData.spendingPause;
+      const active = !currentPause.active;
+
+      return {
+        ...current,
+        spendingPause: {
+          ...currentPause,
+          active,
+          allowedCategories: currentPause.allowedCategories ?? essentialSpendingCategories,
+        },
+        changes: [
+          active
+            ? 'Spending pause turned on for bills, groceries, and needed expenses.'
+            : 'Spending pause turned off.',
+          ...current.changes,
+        ].slice(0, 4),
+      };
+    });
+  };
+
   const addAutopilotRule = () => {
     const amount = Number(autopilotAmount);
 
@@ -1744,7 +2314,7 @@ function MainWorkspace({
 
   const payBill = (billId) => {
     if (!canManageMoney) {
-      setFormMessage('permission', 'Only Admin members can pay bills.');
+      setFormMessage('permission', 'Only Parent members can pay bills.');
       return;
     }
 
@@ -1776,7 +2346,7 @@ function MainWorkspace({
 
   const fundGoal = (goalId) => {
     if (!canManageMoney) {
-      setFormMessage('permission', 'Only Admin members can move money into goals.');
+      setFormMessage('permission', 'Only Parent members can move money into goals.');
       return;
     }
 
@@ -1820,7 +2390,7 @@ function MainWorkspace({
 
   const addAutopilotTransfer = (suggestion) => {
     if (!canManageMoney) {
-      setFormMessage('permission', 'Only Admin members can apply autopilot actions.');
+      setFormMessage('permission', 'Only Parent members can apply autopilot actions.');
       return;
     }
 
@@ -1901,6 +2471,19 @@ function MainWorkspace({
   const urgentBills = householdData.bills.filter((bill) => bill.hoursAway <= 48).length;
   const budgetMood = getBudgetMood({
     dailyLimit,
+    spentToday: householdData.spentToday,
+    totalBalance,
+    urgentBills,
+  });
+  const billShockAlert = getBillShockAlert({
+    bills: householdData.bills,
+    dailyLimit,
+    monthBudgetRemaining: householdData.monthBudgetRemaining,
+    remainingDays: householdData.remainingDays,
+  });
+  const moneyHealth = getMoneyHealthScore({
+    dailyLimit,
+    goals: householdData.goals,
     spentToday: householdData.spentToday,
     totalBalance,
     urgentBills,
@@ -1992,19 +2575,31 @@ function MainWorkspace({
     dailyLimit > 0 ? Math.min((householdData.spentToday / dailyLimit) * 100, 100) : 0;
   const safeToSpendLeft = Math.max(dailyLimit - householdData.spentToday, 0);
   const safeToSpendUsed = dailyLimit > 0 ? Math.min((householdData.spentToday / dailyLimit) * 100, 100) : 0;
+  const safeCountdownTotal = safeToSpendLeft * Math.max(householdData.remainingDays, 0);
+  const whatIfMonthlyImpact =
+    Number(whatIfIncomeChange || 0) -
+    Number(whatIfRentChange || 0) -
+    Number(whatIfWeeklySavings || 0) * 4.33;
+  const whatIfBudgetRemaining = householdData.monthBudgetRemaining + whatIfMonthlyImpact;
+  const whatIfDailyLimit =
+    householdData.remainingDays > 0 ? Math.max(whatIfBudgetRemaining / householdData.remainingDays, 0) : 0;
+  const whatIfDailyDelta = whatIfDailyLimit - dailyLimit;
+  const budgetStreak = getBudgetStreak(householdData.activity, dailyLimit);
   const safeToSpendSummary =
     dailyLimit > 0
-      ? `${formatMoney(safeToSpendLeft, currency)} left from today's ${formatMoney(dailyLimit, currency)} pace.`
+      ? `${formatMoney(safeToSpendLeft, currency)} left today. Keep that pace for ${householdData.remainingDays} days to protect about ${formatMoney(safeCountdownTotal, currency)}.`
       : 'Set a budget and days left to turn on the daily spending chart.';
-  const selectedTradeoffPlan = householdData.tradeoffs.find(
-    (tradeoff) => tradeoff.id === selectedTradeoff,
-  ) ?? {
-    amount: 0,
-    outcome: 'Add a tradeoff option to compare how spare cash changes each goal.',
-  };
   const selectedRole = householdData.roles.find((role) => role.id === activeRole) ?? {
     access: 'Add family members to tailor what each person can see and do.',
   };
+  const visibleRoleModules = [
+    canManageMoney ? 'accounts' : null,
+    canViewBills ? 'bills' : null,
+    'goals',
+    canViewSubscriptions ? 'subscriptions' : null,
+    canViewReports ? 'reports' : null,
+    canViewTransactions ? 'transactions' : 'kid-safe activity',
+  ].filter(Boolean);
   const selectedLifeMode =
     householdData.lifeModes.find((mode) => mode.id === activeLifeMode) ??
     householdData.lifeModes[0];
@@ -2017,6 +2612,32 @@ function MainWorkspace({
     subscriptions: householdData.subscriptions,
     totalBalance,
   });
+  const selectedGoalForTradeoff =
+    householdData.goals.find((goal) => goal.id === selectedTradeoff) ?? householdData.goals[0] ?? null;
+  const alternateGoalForTradeoff =
+    householdData.goals.find((goal) => goal.id !== selectedGoalForTradeoff?.id) ?? null;
+  const tradeoffDailyPace = Math.max(Math.round(Math.max(safeToSpendLeft, dailyLimit * 0.2, 0)), 7);
+  const selectedGoalRemaining = selectedGoalForTradeoff
+    ? Math.max(selectedGoalForTradeoff.target - selectedGoalForTradeoff.saved, 0)
+    : 0;
+  const goalTradeoffAmount = selectedGoalForTradeoff
+    ? Math.min(20, selectedGoalRemaining || 20)
+    : 20;
+  const selectedGoalDaysBefore =
+    selectedGoalRemaining > 0 ? Math.ceil(selectedGoalRemaining / tradeoffDailyPace) : 0;
+  const selectedGoalDaysAfter =
+    selectedGoalRemaining > 0
+      ? Math.ceil(Math.max(selectedGoalRemaining - goalTradeoffAmount, 0) / tradeoffDailyPace)
+      : 0;
+  const selectedGoalDaysSooner = Math.max(selectedGoalDaysBefore - selectedGoalDaysAfter, selectedGoalRemaining > 0 ? 1 : 0);
+  const alternateDelayDays = alternateGoalForTradeoff
+    ? Math.max(1, Math.ceil(goalTradeoffAmount / tradeoffDailyPace))
+    : 0;
+  const tradeoffSummary = selectedGoalForTradeoff
+    ? alternateGoalForTradeoff
+      ? `If you add ${formatMoney(goalTradeoffAmount, currency)} to ${selectedGoalForTradeoff.name}, ${alternateGoalForTradeoff.name} finishes ${alternateDelayDays} ${alternateDelayDays === 1 ? 'day' : 'days'} later.`
+      : `Adding ${formatMoney(goalTradeoffAmount, currency)} moves ${selectedGoalForTradeoff.name} ${selectedGoalDaysSooner} ${selectedGoalDaysSooner === 1 ? 'day' : 'days'} closer.`
+    : 'Add goals to compare where the next dollar should go.';
   const calculatedForecast = getCalculatedForecast({
     bills: householdData.bills,
     dailyLimit,
@@ -2025,6 +2646,10 @@ function MainWorkspace({
     totalBalance,
   });
   const forecastItems = calculatedForecast.length > 0 ? calculatedForecast : householdData.forecast;
+  const subscriptionWatchlist = householdData.subscriptions.map((subscription) => ({
+    ...subscription,
+    signal: getSubscriptionSignal(subscription),
+  }));
   const autopilotSuggestions = [
     ...cashflowInsights.recommendations,
     ...householdData.autopilot.map((suggestion) => ({
@@ -2035,12 +2660,21 @@ function MainWorkspace({
   ];
   const calculatedEmotionalInsight = getEmotionalInsight(householdData.activity);
   const emotionalInsight = calculatedEmotionalInsight ?? householdData.emotionalInsight;
+  const mergedKidGoalRequests = [
+    ...(householdData.kidGoalRequests ?? []),
+    ...(kidsBridgeData.goalRequests ?? []).filter(
+      (request) => !(householdData.kidGoalRequests ?? []).some((item) => item.id === request.id),
+    ),
+  ];
+  const pendingKidGoalRequest = mergedKidGoalRequests.find((request) => request.status === 'Pending');
+  const kidAllowance = kidsBridgeData.allowance ?? null;
+  const kidAllowanceAutopilotEnabled = kidAllowance?.autopilotEnabled !== false;
   const decisionBill = householdData.bills.find((bill) => bill.hoursAway <= 72) ?? householdData.bills[0];
   const decisionAutopilot = autopilotSuggestions[0];
   const decisionProposal = householdData.proposals.find((proposal) => proposal.status !== 'Approved' && proposal.status !== 'Declined');
 
   return (
-    <div className="dashboard-shell">
+    <div className={`dashboard-shell role-${activePermission}`}>
       <nav className="top-nav" aria-label="Main workspace controls">
         <button className="nav-button" onClick={onSwitchPortal} type="button">
           <ArrowLeft size={18} aria-hidden="true" />
@@ -2076,10 +2710,10 @@ function MainWorkspace({
       <header className="dashboard-header">
         <div className="dashboard-sign">
           <p className="eyebrow">MAIN Workspace</p>
-          <h1>{activeMainPage === 'dashboard' ? 'Dashboard' : 'Manage Money'}</h1>
+          <h1>{activeMainPage === 'dashboard' ? 'Today' : 'Manage Money'}</h1>
           <span>
             {activeMainPage === 'dashboard'
-              ? 'Household money overview'
+              ? 'Balance, safe-to-spend, bills, and health score'
               : 'Accounts, imports, transactions, and setup'}
           </span>
         </div>
@@ -2090,6 +2724,26 @@ function MainWorkspace({
         </div>
       </header>
 
+      {activePermission === 'kid' ? (
+        <section className="kid-safe-summary" aria-label="Kid-safe money summary">
+          <div>
+            <p className="eyebrow">Kid View</p>
+            <h2>Goals and simple money moves</h2>
+            <span>Big bills, account balances, and subscription details stay with adults.</span>
+          </div>
+          <div className="kid-safe-grid">
+            <span>
+              <strong>{householdData.goals.length}</strong>
+              goals
+            </span>
+            <span>
+              <strong>{householdData.activity.filter((entry) => entry.category === 'Kids').length}</strong>
+              kid-safe moves
+            </span>
+          </div>
+        </section>
+      ) : null}
+
       <section className="main-page-switch" aria-label="Main page switcher">
         <button
           className={activeMainPage === 'dashboard' ? 'selected' : ''}
@@ -2097,7 +2751,7 @@ function MainWorkspace({
           type="button"
         >
           <ArrowRight size={18} aria-hidden="true" />
-          <span>Dashboard</span>
+          <span>Today</span>
         </button>
         <button
           className={activeMainPage === 'manage' ? 'selected' : ''}
@@ -2161,47 +2815,29 @@ function MainWorkspace({
           <small>Projected adds the remaining daily spending pace to this month.</small>
         </article>
 
-        <article className="top-graph-card">
+        <article className="top-graph-card health-score-card">
           <div className="top-graph-heading">
             <span className="module-icon">
-              <Landmark size={18} aria-hidden="true" />
+              <HeartPulse size={18} aria-hidden="true" />
             </span>
             <div>
-              <p className="eyebrow">Account Total</p>
-              <h2>Balance by account</h2>
+              <p className="eyebrow">Money Health</p>
+              <h2>{moneyHealth.label}</h2>
             </div>
           </div>
-          <strong>{money(totalBalance)}</strong>
-          <div className="mini-line">
-            {netWorthPoints.length > 0 ? (
-              netWorthPoints.map((point, index) => (
-                <i key={`${point.label}-${index}`}>
-                  {(() => {
-                    const left = `${netWorthPoints.length === 1 ? 50 : (index / (netWorthPoints.length - 1)) * 100}%`;
-
-                    return (
-                      <>
-                  <span
-                    style={{
-                      left,
-                      bottom: `${50 + (point.value / maxNetWorthPoint) * 38}%`,
-                    }}
-                  />
-                  <b style={{ left }}>{point.label}</b>
-                      </>
-                    );
-                  })()}
-                </i>
-              ))
-            ) : (
-              <p>No account data yet</p>
-            )}
+          <div
+            aria-label={`Money health score ${moneyHealth.score} out of 100`}
+            className="health-score-ring"
+            style={{ '--health-score': `${moneyHealth.score}%` }}
+          >
+            <strong>{moneyHealth.score}</strong>
+            <span>/100</span>
           </div>
-          <small>{householdData.accounts.length || 0} accounts connected. Add accounts below to fill this chart.</small>
+          <small>{moneyHealth.detail}</small>
         </article>
       </section>
 
-      {hasHouseholdData ? (
+      {hasHouseholdData || pendingKidGoalRequest ? (
       <section className="decision-center" aria-labelledby="decision-center-title">
         <div className="decision-center-heading">
           <p className="eyebrow">Decision Center</p>
@@ -2253,9 +2889,42 @@ function MainWorkspace({
             </article>
           ) : null}
 
-          {!decisionBill && !decisionAutopilot && !decisionProposal ? (
-            <EmptyState title="Nothing urgent">Bills, recommendations, and proposals will appear here when they need a decision.</EmptyState>
+          {pendingKidGoalRequest ? (
+            <article className="decision-item kid-request-decision">
+              <span>Kid goal request</span>
+              <strong>
+                {pendingKidGoalRequest.goalIcon ? `${pendingKidGoalRequest.goalIcon} ` : ''}
+                {pendingKidGoalRequest.goalName}
+              </strong>
+              <p>
+                {money(pendingKidGoalRequest.amount)} requested by {pendingKidGoalRequest.childName ?? 'Kids'}
+              </p>
+              <div className="decision-actions">
+                <button
+                  disabled={!canManageMoney || checkingBalance < pendingKidGoalRequest.amount}
+                  onClick={() => decideKidGoalRequest(pendingKidGoalRequest.id, 'approved')}
+                  type="button"
+                >
+                  Approve
+                </button>
+                <button
+                  className="secondary-action"
+                  disabled={!canManageMoney}
+                  onClick={() => decideKidGoalRequest(pendingKidGoalRequest.id, 'declined')}
+                  type="button"
+                >
+                  Decline
+                </button>
+              </div>
+            </article>
           ) : null}
+
+          {!decisionBill && !decisionAutopilot && !decisionProposal && !pendingKidGoalRequest ? (
+            <EmptyState title="Nothing urgent">Bills, recommendations, proposals, and kid requests will appear here when they need a decision.</EmptyState>
+          ) : null}
+          <FormMessage id="kid-goal-request-message" tone="error">
+            {formMessages.kidGoalRequest}
+          </FormMessage>
         </div>
       </section>
       ) : null}
@@ -2335,6 +3004,104 @@ function MainWorkspace({
         </div>
       </section>
 
+      <section className="prototype-tools-grid" aria-label="Budget planning tools">
+        <article className="what-if-card">
+          <div className="setup-heading">
+            <div>
+              <p className="eyebrow">What-If Simulator</p>
+              <h2>Test changes before they hit</h2>
+            </div>
+          </div>
+
+          <div className="what-if-form">
+            <label htmlFor="rent-change">
+              Rent change
+              <input
+                id="rent-change"
+                onChange={(event) => setWhatIfRentChange(event.target.value)}
+                placeholder="100"
+                type="number"
+                value={whatIfRentChange}
+              />
+            </label>
+            <label htmlFor="weekly-savings-change">
+              Extra weekly savings
+              <input
+                id="weekly-savings-change"
+                onChange={(event) => setWhatIfWeeklySavings(event.target.value)}
+                placeholder="25"
+                type="number"
+                value={whatIfWeeklySavings}
+              />
+            </label>
+            <label htmlFor="income-change">
+              Income change
+              <input
+                id="income-change"
+                onChange={(event) => setWhatIfIncomeChange(event.target.value)}
+                placeholder="0"
+                type="number"
+                value={whatIfIncomeChange}
+              />
+            </label>
+          </div>
+
+          <div className="what-if-result">
+            <span>New daily safe-to-spend</span>
+            <strong>{money(whatIfDailyLimit)}</strong>
+            <small className={whatIfDailyDelta >= 0 ? 'positive' : 'negative'}>
+              {whatIfDailyDelta >= 0 ? '+' : ''}
+              {money(whatIfDailyDelta)} per day versus current pace
+            </small>
+          </div>
+        </article>
+
+        <article className="receipt-drop-card">
+          <div className="setup-heading">
+            <div>
+              <p className="eyebrow">Receipt Drop Zone</p>
+              <h2>Stage receipts and CSVs</h2>
+            </div>
+          </div>
+          <label
+            className="receipt-drop-zone"
+            htmlFor="receipt-file-input"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleReceiptFiles(event.dataTransfer.files);
+            }}
+          >
+            <Upload size={22} aria-hidden="true" />
+            <strong>Drop receipt images or CSV files</strong>
+            <span>CSV rows go into the importer. Images are staged for extraction later.</span>
+            <input
+              accept="image/*,.csv,text/csv"
+              id="receipt-file-input"
+              multiple
+              onChange={(event) => handleReceiptFiles(event.target.files)}
+              type="file"
+            />
+          </label>
+          <div className="receipt-stage-list">
+            {receiptItems.length > 0 ? (
+              receiptItems.map((item) => (
+                <div key={item.id}>
+                  <span>{item.type}</span>
+                  <strong>{item.name}</strong>
+                  <small>{item.status}</small>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="Nothing staged">Drop a receipt image or CSV to prepare transactions.</EmptyState>
+            )}
+          </div>
+          <FormMessage id="receipt-message" tone={formMessages.receipt ? 'error' : 'hint'}>
+            {formMessages.receipt || 'Use Import Rows after a CSV is staged.'}
+          </FormMessage>
+        </article>
+      </section>
+
       <section className="onboarding-data-grid" aria-label="Onboarding and data controls">
         <article className="onboarding-card">
           <div>
@@ -2392,6 +3159,16 @@ function MainWorkspace({
       </section>
 
       <section className="quick-actions" aria-label="Money actions">
+        <div className={`spending-pause-banner ${isSpendingPaused ? 'active' : ''}`}>
+          <div>
+            <span>{isSpendingPaused ? 'Spending Pause On' : 'Spending Pause Off'}</span>
+            <strong>Bills, groceries, and needed expenses only</strong>
+            <small>{spendingPause.reason}</small>
+          </div>
+          <button onClick={toggleSpendingPause} type="button">
+            {isSpendingPaused ? 'Resume Spending' : 'Pause Non-Essentials'}
+          </button>
+        </div>
         <div className="money-action">
           <label htmlFor="main-add-money">
             <span>Add Money</span>
@@ -2445,16 +3222,19 @@ function MainWorkspace({
                 .filter((category) => category !== 'Income')
                 .map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {isSpendingPaused && !allowedPauseCategories.includes(category) ? `${category} paused` : category}
                   </option>
                 ))}
             </select>
           </label>
-          <button disabled={!canLogSpending} onClick={logSpending} type="button">
+          <button disabled={!canLogSpending || isSpendCategoryPaused} onClick={logSpending} type="button">
             Log Purchase
           </button>
           <FormMessage id="log-spending-message" tone={formMessages.logSpending ? 'error' : 'hint'}>
             {formMessages.logSpending ||
+              (isSpendCategoryPaused
+                ? 'Spending pause allows bills, food, and transport only.'
+                : '') ||
               (spendAmount && !canLogSpending
                 ? 'Enter an amount covered by the selected account.'
                 : '')}
@@ -2477,7 +3257,11 @@ function MainWorkspace({
             <option value="income">Income</option>
             <option value="expense">Expenses</option>
             {categoryOptions.map((category) => (
-              <option key={category} value={category}>{category}</option>
+              <option key={category} value={category}>
+                {isSpendingPaused && transactionType === 'expense' && !allowedPauseCategories.includes(category)
+                  ? `${category} paused`
+                  : category}
+              </option>
             ))}
           </select>
         </div>
@@ -2544,7 +3328,7 @@ function MainWorkspace({
             value={transactionNotes}
           />
           <div className="transaction-actions">
-            <button disabled={!canSaveTransaction} onClick={saveTransaction} type="button">
+            <button disabled={!canSaveTransaction || isTransactionCategoryPaused} onClick={saveTransaction} type="button">
               {editingTransactionId ? 'Save Edit' : 'Add Transaction'}
             </button>
             {editingTransactionId ? (
@@ -2552,7 +3336,10 @@ function MainWorkspace({
             ) : null}
           </div>
           <FormMessage id="transaction-message" tone={formMessages.transaction ? 'error' : 'hint'}>
-            {formMessages.transaction || 'Transactions update account balances and analytics immediately.'}
+            {formMessages.transaction ||
+              (isTransactionCategoryPaused
+                ? 'Spending pause allows expense entries only for bills, food, and transport.'
+                : 'Transactions update account balances and analytics immediately.')}
           </FormMessage>
         </div>
       </section>
@@ -2583,7 +3370,7 @@ function MainWorkspace({
           </div>
           <div className="spend-ring-copy">
             <span className="chart-pill">{paceStatus.label}</span>
-            <h3>Daily spending pace</h3>
+            <h3>Safe-to-spend countdown</h3>
             <p>{safeToSpendSummary}</p>
             <div className="chart-stats" aria-label="Safe-to-spend chart values">
               <span>
@@ -2593,6 +3380,10 @@ function MainWorkspace({
               <span>
                 <strong>{formatMoney(dailyLimit, currency)}</strong>
                 daily pace
+              </span>
+              <span>
+                <strong>{formatMoney(safeCountdownTotal, currency)}</strong>
+                protected
               </span>
             </div>
           </div>
@@ -2923,11 +3714,16 @@ function MainWorkspace({
           <span className="card-label">No-Shame Recovery</span>
           <strong>Small fix, not a failure.</strong>
           <p>
-            {dailyLimit > 0
-              ? `Hold extra spending and keep daily purchases under ${formatMoney(
-                  dailyLimit,
+            {billShockAlert
+              ? `${billShockAlert.bill.name} is coming soon. Shift daily spending to ${formatMoney(
+                  billShockAlert.adjustedDailySpend,
                   currency,
-                )} to stay on pace.`
+                )} to stay safe.`
+              : dailyLimit > 0
+                ? `Hold extra spending and keep daily purchases under ${formatMoney(
+                    dailyLimit,
+                    currency,
+                  )} to stay on pace.`
               : 'Once a budget is added, BudgetHQ will suggest small recovery steps without shame.'}
           </p>
         </article>
@@ -2964,6 +3760,50 @@ function MainWorkspace({
           </p>
         </article>
 
+        <article className="dashboard-card streak-card">
+          <div className="card-heading">
+            <span className="module-icon">
+              <Check size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Budget Streaks</h2>
+              <p>Days and weeks under safe-to-spend</p>
+            </div>
+          </div>
+          {dailyLimit > 0 && budgetStreak.days.length > 0 ? (
+            <>
+              <div className="streak-hero">
+                <strong>{budgetStreak.current}</strong>
+                <span>day current streak</span>
+              </div>
+              <div className="streak-stats">
+                <span>
+                  <strong>{budgetStreak.best}</strong>
+                  best streak
+                </span>
+                <span>
+                  <strong>{budgetStreak.recentUnder}/7</strong>
+                  recent under-days
+                </span>
+              </div>
+              <div className="streak-days" aria-label="Recent budget streak days">
+                {budgetStreak.days.slice(0, 7).map((day) => (
+                  <span
+                    className={day.under ? 'under' : 'over'}
+                    key={day.date}
+                    title={`${day.date}: ${formatMoney(day.spent, currency)}`}
+                  />
+                ))}
+              </div>
+              <p className="fine-print">
+                {budgetStreak.underDays} days under pace, {budgetStreak.overDays} days over pace.
+              </p>
+            </>
+          ) : (
+            <EmptyState title="No streak yet">Set a budget and log dated spending to start the household streak.</EmptyState>
+          )}
+        </article>
+
         <article className="dashboard-card reminders-card">
           <div className="card-heading">
             <span className="module-icon">
@@ -2975,20 +3815,36 @@ function MainWorkspace({
             </div>
           </div>
           <div className="bill-list">
+            {billShockAlert ? (
+              <div className="bill-shock-alert">
+                <strong>Bill Shock Alert</strong>
+                <span>
+                  {billShockAlert.bill.name} is due {billShockAlert.bill.due}. Drop daily spending by{' '}
+                  {formatMoney(billShockAlert.reduction, currency)} to about{' '}
+                  {formatMoney(billShockAlert.adjustedDailySpend, currency)} / day.
+                </span>
+              </div>
+            ) : null}
             {householdData.bills.length > 0 ? (
               householdData.bills.map((bill) => (
-                <div className={`bill-item ${bill.hoursAway <= 48 ? 'urgent' : ''}`} key={bill.id}>
+                <div
+                  className={`bill-item ${bill.hoursAway <= 48 ? 'urgent' : ''} ${
+                    billShockAlert?.bill.id === bill.id ? 'shock' : ''
+                  }`}
+                  key={bill.id}
+                >
                   <div>
                     <strong>{bill.name}</strong>
                     <span>
                       {bill.due}
                       {bill.hoursAway <= 48 ? <em className="urgency-pill">Urgent</em> : null}
+                      {billShockAlert?.bill.id === bill.id ? <em className="shock-pill">Shock</em> : null}
                     </span>
                   </div>
                   <span>{formatMoney(bill.amount, currency)}</span>
                   <button
                     aria-label={`Pay ${bill.name}`}
-                    disabled={checkingBalance < bill.amount}
+                    disabled={!canManageMoney || checkingBalance < bill.amount}
                     onClick={() => payBill(bill.id)}
                     type="button"
                   >
@@ -3389,6 +4245,122 @@ function MainWorkspace({
           </div>
         </article>
 
+        <article className="dashboard-card kid-approval-card">
+          <div className="card-heading">
+            <span className="module-icon">
+              <Coins size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Kid Goal Approval</h2>
+              <p>Approve or decline money requests from Kids</p>
+            </div>
+          </div>
+          <div className="kid-request-list">
+            {mergedKidGoalRequests.length > 0 ? (
+              mergedKidGoalRequests.slice(0, 4).map((request) => (
+                <div className={`kid-request-item ${request.status?.toLowerCase()}`} key={request.id}>
+                  <div>
+                    <strong>
+                      {request.goalIcon ? `${request.goalIcon} ` : ''}
+                      {request.goalName}
+                    </strong>
+                    <span>
+                      {money(request.amount)} requested by {request.childName ?? 'Kids'}
+                    </span>
+                    {request.note ? <small>{request.note}</small> : null}
+                  </div>
+                  <span className="request-status">{request.status ?? 'Pending'}</span>
+                  {request.status === 'Pending' ? (
+                    <div className="request-actions">
+                      <button
+                        disabled={!canManageMoney || checkingBalance < request.amount}
+                        onClick={() => decideKidGoalRequest(request.id, 'approved')}
+                        type="button"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="secondary-action"
+                        disabled={!canManageMoney}
+                        onClick={() => decideKidGoalRequest(request.id, 'declined')}
+                        type="button"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No kid requests yet">Kids can ask for help from their savings quest cards.</EmptyState>
+            )}
+            <FormMessage id="kid-goal-card-message" tone="error">
+              {formMessages.kidGoalRequest}
+            </FormMessage>
+          </div>
+        </article>
+
+        <article className="dashboard-card allowance-autopilot-card">
+          <div className="card-heading">
+            <span className="module-icon">
+              <BadgeDollarSign size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Allowance Autopilot</h2>
+              <p>Parent controls for scheduled allowance</p>
+            </div>
+          </div>
+          {kidAllowance ? (
+            <div className="allowance-control-panel">
+              <div>
+                <span>{kidAllowanceAutopilotEnabled ? 'Autopilot enabled' : 'Autopilot paused'}</span>
+                <strong>
+                  {money(kidAllowance.amount)} {kidAllowance.cadence}
+                </strong>
+                <small>
+                  Next: {kidAllowance.next ?? getNextAllowanceLabel(kidAllowance.cadence)}
+                  {kidAllowance.lastPaid ? ` · Last paid ${kidAllowance.lastPaid}` : ''}
+                </small>
+              </div>
+              <div className="allowance-control-actions">
+                <button disabled={!canManageMoney || !kidAllowanceAutopilotEnabled} onClick={runKidAllowanceAutopilot} type="button">
+                  Run Now
+                </button>
+                <button className="secondary-action" disabled={!canManageMoney} onClick={toggleKidAllowanceAutopilot} type="button">
+                  {kidAllowanceAutopilotEnabled ? 'Pause' : 'Enable'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No allowance schedule">Set allowance in the Kids portal, then parents can run or pause it here.</EmptyState>
+          )}
+          <FormMessage id="allowance-autopilot-message" tone="error">
+            {formMessages.allowanceAutopilot}
+          </FormMessage>
+        </article>
+
+        <article className={`dashboard-card spending-pause-card ${isSpendingPaused ? 'active' : ''}`}>
+          <div className="card-heading">
+            <span className="module-icon">
+              <PauseCircle size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Spending Pause Button</h2>
+              <p>Temporarily block non-essential categories</p>
+            </div>
+          </div>
+          <div className="pause-mode-panel">
+            <div>
+              <span>{isSpendingPaused ? 'Pause mode active' : 'Normal spending mode'}</span>
+              <strong>{isSpendingPaused ? 'Essentials highlighted' : 'All categories available'}</strong>
+              <small>Allowed now: {allowedPauseCategories.join(', ')}</small>
+            </div>
+            <button onClick={toggleSpendingPause} type="button">
+              {isSpendingPaused ? 'Resume' : 'Pause Non-Essentials'}
+            </button>
+          </div>
+        </article>
+
         <article className="dashboard-card pause-card">
           <div className="card-heading">
             <span className="module-icon">
@@ -3429,23 +4401,31 @@ function MainWorkspace({
               <p>Compare one dollar, three futures</p>
             </div>
           </div>
-          {householdData.tradeoffs.length > 0 && selectedTradeoffPlan ? (
+          {householdData.goals.length > 0 && selectedGoalForTradeoff ? (
             <>
               <div className="segmented-control" aria-label="Tradeoff options">
-                {householdData.tradeoffs.map((tradeoff) => (
+                {householdData.goals.map((goal) => (
                   <button
-                    className={selectedTradeoff === tradeoff.id ? 'selected' : ''}
-                    key={tradeoff.id}
-                    onClick={() => setSelectedTradeoff(tradeoff.id)}
+                    className={selectedGoalForTradeoff.id === goal.id ? 'selected' : ''}
+                    key={goal.id}
+                    onClick={() => setSelectedTradeoff(goal.id)}
                     type="button"
                   >
-                    {tradeoff.label}
+                    {goal.name}
                   </button>
                 ))}
               </div>
               <div className="simulator-result">
-                <strong>{formatMoney(selectedTradeoffPlan.amount, currency)}</strong>
-                <span>{selectedTradeoffPlan.outcome}</span>
+                <strong>{formatMoney(goalTradeoffAmount, currency)}</strong>
+                <span>{tradeoffSummary}</span>
+                <div className="tradeoff-details">
+                  <span>{selectedGoalForTradeoff.name}: {selectedGoalDaysSooner || 0} days sooner</span>
+                  {alternateGoalForTradeoff ? (
+                    <span>{alternateGoalForTradeoff.name}: {alternateDelayDays} days later</span>
+                  ) : (
+                    <span>Add a second goal to see the trade-off.</span>
+                  )}
+                </div>
               </div>
             </>
           ) : (
@@ -3479,13 +4459,13 @@ function MainWorkspace({
               </div>
               <div className="role-summary">
                 <strong>
-                  {permissionProfiles.find((profile) => profile.id === activePermission)?.label ?? 'Admin'} mode
+                  {activeProfile.label} mode
                 </strong>
                 <span>{selectedRole.access}</span>
                 <small>
-                  {permissionProfiles.find((profile) => profile.id === activePermission)?.detail ??
-                    permissionProfiles[0].detail}
+                  {activeProfile.detail}
                 </small>
+                <small>Visible: {visibleRoleModules.join(', ')}.</small>
               </div>
               <div className="notification-list" aria-label="Household notifications">
                 {(householdData.notifications ?? []).length > 0 ? (
@@ -3532,21 +4512,22 @@ function MainWorkspace({
               <ReceiptText size={20} aria-hidden="true" />
             </span>
             <div>
-              <h2>Subscription Usefulness</h2>
-              <p>Recurring spend with value signals</p>
+              <h2>Subscription Watchlist</h2>
+              <p>Used often, maybe cancel, and price increase signals</p>
             </div>
           </div>
           <div className="subscription-list">
-            {householdData.subscriptions.length > 0 ? (
-              householdData.subscriptions.map((subscription) => (
-                <div className="subscription-item" key={subscription.id}>
+            {subscriptionWatchlist.length > 0 ? (
+              subscriptionWatchlist.map((subscription) => (
+                <div className={`subscription-item ${subscription.signal.tone}`} key={subscription.id}>
                   <div>
                     <strong>{subscription.name}</strong>
                     <span>{formatMoney(subscription.amount, currency)} / month</span>
+                    <small>{subscription.signal.note}</small>
                   </div>
                   <div className="score-pill">
                     <span>{subscription.useScore}</span>
-                    <small>{subscription.status}</small>
+                    <small>{subscription.signal.label}</small>
                   </div>
                 </div>
               ))
