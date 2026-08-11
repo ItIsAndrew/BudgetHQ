@@ -1149,7 +1149,7 @@ function MainWorkspace({
     isSpendingPaused && !allowedPauseCategories.includes(spendCategory);
   const isTransactionCategoryPaused =
     isSpendingPaused && transactionType === 'expense' && !allowedPauseCategories.includes(transactionCategory);
-  const activeMember = householdData.roles.find((role) => role.id === activeRole) ?? null;
+  const activeMember = householdData.roles.find((role) => role.id === activeRole) ?? householdData.roles[0] ?? null;
   const activeProfile = getRoleProfile(activeMember?.permission ?? 'parent');
   const activePermission = activeProfile.id;
   const canManageMoney = activePermission === 'parent';
@@ -1317,6 +1317,30 @@ function MainWorkspace({
     setAccountName('');
     setAccountBalance('');
     setAccountType('Checking');
+  };
+
+  const deleteAccount = (accountId) => {
+    const account = householdData.accounts.find((item) => item.id === accountId);
+
+    if (!account) {
+      return;
+    }
+
+    if (Math.abs(account.balance) > 0.01) {
+      setFormMessage('account', 'Empty this account balance before deleting it.');
+      return;
+    }
+
+    clearFormMessage('account');
+    setHouseholdData((current) => ({
+      ...current,
+      accounts: current.accounts.filter((item) => item.id !== accountId),
+      changes: [`${account.label} account deleted.`, ...current.changes].slice(0, 4),
+    }));
+
+    if (selectedAccountId === accountId) {
+      setSelectedAccountId('');
+    }
   };
 
   const resetTransactionForm = () => {
@@ -1732,6 +1756,20 @@ function MainWorkspace({
     setCategoryGroup('');
   };
 
+  const deleteCategory = (categoryId) => {
+    const category = householdData.categories.find((item) => item.id === categoryId);
+
+    if (!category) {
+      return;
+    }
+
+    setHouseholdData((current) => ({
+      ...current,
+      categories: current.categories.filter((item) => item.id !== categoryId),
+      changes: [`${category.name} category budget deleted.`, ...current.changes].slice(0, 4),
+    }));
+  };
+
   const rolloverCategories = () => {
     setHouseholdData((current) => ({
       ...current,
@@ -1833,6 +1871,36 @@ function MainWorkspace({
     setBillDue('');
   };
 
+  const deleteBill = (billId) => {
+    const bill = householdData.bills.find((item) => item.id === billId);
+
+    if (!bill) {
+      return;
+    }
+
+    setHouseholdData((current) => {
+      const nextBills = current.bills.filter((item) => item.id !== billId);
+
+      return {
+        ...current,
+        bills: nextBills,
+        pressureWeeks:
+          nextBills.length > 0
+            ? [
+                {
+                  bills: nextBills.length,
+                  id: 'pressure-upcoming',
+                  label: 'Upcoming',
+                  level: nextBills.some((item) => item.amount > 500) ? 'high' : 'medium',
+                  total: nextBills.reduce((sum, item) => sum + item.amount, 0),
+                },
+              ]
+            : [],
+        changes: [`${bill.name} bill deleted.`, ...current.changes].slice(0, 4),
+      };
+    });
+  };
+
   const addGoal = () => {
     const target = Number(goalTarget);
 
@@ -1871,6 +1939,31 @@ function MainWorkspace({
     setGoalTarget('');
   };
 
+  const deleteGoal = (goalId) => {
+    const goal = householdData.goals.find((item) => item.id === goalId);
+
+    if (!goal) {
+      return;
+    }
+
+    if (goal.saved > 0) {
+      setFormMessage('goal', 'Move saved money out of this goal before deleting it.');
+      return;
+    }
+
+    clearFormMessage('goal');
+    setHouseholdData((current) => ({
+      ...current,
+      goals: current.goals.filter((item) => item.id !== goalId),
+      tradeoffs: current.tradeoffs.filter((item) => item.id !== goalId),
+      changes: [`${goal.name} goal deleted.`, ...current.changes].slice(0, 4),
+    }));
+
+    if (selectedTradeoff === goalId) {
+      setSelectedTradeoff(null);
+    }
+  };
+
   const addSubscription = () => {
     const amount = Number(subscriptionAmount);
 
@@ -1897,6 +1990,20 @@ function MainWorkspace({
     }));
     setSubscriptionName('');
     setSubscriptionAmount('');
+  };
+
+  const deleteSubscription = (subscriptionId) => {
+    const subscription = householdData.subscriptions.find((item) => item.id === subscriptionId);
+
+    if (!subscription) {
+      return;
+    }
+
+    setHouseholdData((current) => ({
+      ...current,
+      subscriptions: current.subscriptions.filter((item) => item.id !== subscriptionId),
+      changes: [`${subscription.name} subscription deleted.`, ...current.changes].slice(0, 4),
+    }));
   };
 
   const addRole = () => {
@@ -1932,6 +2039,32 @@ function MainWorkspace({
     setRoleName('');
     setRoleAccess('');
     setRolePermission('teen');
+  };
+
+  const deleteRole = (roleId) => {
+    const role = householdData.roles.find((item) => item.id === roleId);
+
+    if (!role) {
+      return;
+    }
+
+    setHouseholdData((current) => ({
+      ...current,
+      roles: current.roles.filter((item) => item.id !== roleId),
+      notifications: [
+        {
+          actor: 'BudgetHQ',
+          id: createId(`${role.label} removed`),
+          message: `${role.label} role was removed.`,
+          time: 'Just now',
+        },
+        ...(current.notifications ?? []),
+      ].slice(0, 6),
+    }));
+
+    if (activeRole === roleId) {
+      setActiveRole(null);
+    }
   };
 
   const addProposal = () => {
@@ -2589,7 +2722,7 @@ function MainWorkspace({
     dailyLimit > 0
       ? `${formatMoney(safeToSpendLeft, currency)} left today. Keep that pace for ${householdData.remainingDays} days to protect about ${formatMoney(safeCountdownTotal, currency)}.`
       : 'Set a budget and days left to turn on the daily spending chart.';
-  const selectedRole = householdData.roles.find((role) => role.id === activeRole) ?? {
+  const selectedRole = activeMember ?? {
     access: 'Add family members to tailor what each person can see and do.',
   };
   const visibleRoleModules = [
@@ -2943,16 +3076,19 @@ function MainWorkspace({
           <div className="account-list">
             {householdData.accounts.length > 0 ? (
               householdData.accounts.map((account) => (
-                <button
+                <div
                   className={transactionAccountId === account.id ? 'account-chip selected' : 'account-chip'}
                   key={account.id}
-                  onClick={() => setSelectedAccountId(account.id)}
-                  type="button"
                 >
-                  <span>{account.type}</span>
-                  <strong>{account.label}</strong>
-                  <b>{money(account.balance)}</b>
-                </button>
+                  <button onClick={() => setSelectedAccountId(account.id)} type="button">
+                    <span>{account.type}</span>
+                    <strong>{account.label}</strong>
+                    <b>{money(account.balance)}</b>
+                  </button>
+                  <button className="mini-delete-button" onClick={() => deleteAccount(account.id)} type="button">
+                    Delete
+                  </button>
+                </div>
               ))
             ) : (
               <EmptyState title="No accounts yet">Add checking, savings, credit cards, loans, or cash accounts.</EmptyState>
@@ -3850,6 +3986,13 @@ function MainWorkspace({
                   >
                     Pay
                   </button>
+                  <button
+                    className="mini-delete-button"
+                    onClick={() => deleteBill(bill.id)}
+                    type="button"
+                  >
+                    Delete
+                  </button>
                 </div>
               ))
             ) : (
@@ -3902,6 +4045,13 @@ function MainWorkspace({
                       type="button"
                     >
                       Add {formatMoney(availableGoalContribution, currency)}
+                    </button>
+                    <button
+                      className="mini-delete-button"
+                      onClick={() => deleteGoal(goal.id)}
+                      type="button"
+                    >
+                      Delete
                     </button>
                   </div>
                 );
@@ -3970,6 +4120,15 @@ function MainWorkspace({
                         {formatMoney(category.amount, currency)}
                         <small>of {formatMoney(available, currency)}</small>
                       </strong>
+                      {householdData.categories.some((item) => item.id === category.id) ? (
+                        <button
+                          className="mini-delete-button"
+                          onClick={() => deleteCategory(category.id)}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -4448,7 +4607,7 @@ function MainWorkspace({
               <div className="role-tabs" aria-label="Family role views">
                 {householdData.roles.map((role) => (
                   <button
-                    className={activeRole === role.id ? 'selected' : ''}
+                    className={selectedRole.id === role.id ? 'selected' : ''}
                     key={role.id}
                     onClick={() => setActiveRole(role.id)}
                     type="button"
@@ -4466,6 +4625,9 @@ function MainWorkspace({
                   {activeProfile.detail}
                 </small>
                 <small>Visible: {visibleRoleModules.join(', ')}.</small>
+                <button className="mini-delete-button" onClick={() => deleteRole(selectedRole.id)} type="button">
+                  Delete Role
+                </button>
               </div>
               <div className="notification-list" aria-label="Household notifications">
                 {(householdData.notifications ?? []).length > 0 ? (
@@ -4529,6 +4691,13 @@ function MainWorkspace({
                     <span>{subscription.useScore}</span>
                     <small>{subscription.signal.label}</small>
                   </div>
+                  <button
+                    className="mini-delete-button"
+                    onClick={() => deleteSubscription(subscription.id)}
+                    type="button"
+                  >
+                    Delete
+                  </button>
                 </div>
               ))
             ) : (

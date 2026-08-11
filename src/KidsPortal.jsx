@@ -353,6 +353,34 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
     setQuestIcon('');
   };
 
+  const deleteQuest = (questId) => {
+    const quest = kidsData.quests.find((item) => item.id === questId);
+
+    if (!quest) {
+      return;
+    }
+
+    if (quest.saved > 0) {
+      setFormMessage(`request-${questId}`, 'Move saved money back before deleting this quest.');
+      return;
+    }
+
+    clearFormMessage(`request-${questId}`);
+    setKidsData((current) => ({
+      ...current,
+      goalRequests: (current.goalRequests ?? []).filter((request) => request.goalId !== questId),
+      quests: current.quests.filter((item) => item.id !== questId),
+      activity: [
+        addActivity({
+          amount: 0,
+          label: `${quest.name} quest deleted`,
+          type: 'out',
+        }),
+        ...current.activity,
+      ],
+    }));
+  };
+
   const addChore = () => {
     const reward = Number(choreReward);
 
@@ -379,6 +407,13 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
     setChoreReward('');
   };
 
+  const deleteChore = (choreId) => {
+    setKidsData((current) => ({
+      ...current,
+      chores: current.chores.filter((item) => item.id !== choreId),
+    }));
+  };
+
   const setAllowance = () => {
     const amount = Number(allowanceAmount);
 
@@ -397,6 +432,15 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
         claimed: false,
         next: getNextAllowanceLabel(allowanceCadence),
       },
+    }));
+    setAllowanceAmount('');
+    setAllowanceCadence('Weekly');
+  };
+
+  const deleteAllowance = () => {
+    setKidsData((current) => ({
+      ...current,
+      allowance: null,
     }));
     setAllowanceAmount('');
     setAllowanceCadence('Weekly');
@@ -634,6 +678,36 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
         </span>
       </section>
 
+      <section className="kids-starter-strip" aria-label="Kids starter steps">
+        <article>
+          <span className="module-icon">
+            <BadgeDollarSign size={18} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>1. Add money</strong>
+            <small>Start with the real amount in the money box.</small>
+          </div>
+        </article>
+        <article>
+          <span className="module-icon">
+            <PiggyBank size={18} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>2. Make a quest</strong>
+            <small>Add one thing the kid actually wants to save for.</small>
+          </div>
+        </article>
+        <article>
+          <span className="module-icon">
+            <Gift size={18} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>3. Add rewards</strong>
+            <small>Use chores or allowance to create activity.</small>
+          </div>
+        </article>
+      </section>
+
       <section className="kids-setup-panel" aria-label="Kids setup">
         <div className="setup-heading">
           <p className="eyebrow">Setup</p>
@@ -802,6 +876,13 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
                         Take $5
                       </button>
                     </div>
+                    <button
+                      className="mini-delete-button"
+                      onClick={() => deleteQuest(quest.id)}
+                      type="button"
+                    >
+                      Delete Quest
+                    </button>
                     <div className="quest-request">
                       <label htmlFor={`quest-request-${quest.id}`}>Ask Main</label>
                       <div>
@@ -855,9 +936,14 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
                 <p>
                   Next allowance is set for {kidsData.allowance.next}. This prototype lets you claim it once.
                 </p>
-                <button disabled={kidsData.allowance.claimed} onClick={claimAllowance} type="button">
-                  {kidsData.allowance.claimed ? 'Allowance Claimed' : 'Claim Allowance'}
-                </button>
+                <div className="split-actions">
+                  <button disabled={kidsData.allowance.claimed} onClick={claimAllowance} type="button">
+                    {kidsData.allowance.claimed ? 'Allowance Claimed' : 'Claim Allowance'}
+                  </button>
+                  <button className="mini-delete-button" onClick={deleteAllowance} type="button">
+                    Delete
+                  </button>
+                </div>
               </>
             ) : (
               <KidsEmptyState title="No allowance yet">Set an allowance schedule to turn this on.</KidsEmptyState>
@@ -889,6 +975,13 @@ function KidsPortal({ onBack, onStartTour, onTourComplete, showTour, tourSteps }
                       type="button"
                     >
                       {chore.done ? <CheckCircle2 size={17} /> : 'I Did This!'}
+                    </button>
+                    <button
+                      className="mini-delete-button"
+                      onClick={() => deleteChore(chore.id)}
+                      type="button"
+                    >
+                      Delete
                     </button>
                   </article>
                 ))

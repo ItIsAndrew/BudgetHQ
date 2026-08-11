@@ -8,6 +8,14 @@ export default [
   },
   js.configs.recommended,
   {
+    files: ['*.config.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ['**/*.{js,jsx}'],
     plugins: {
       react,
